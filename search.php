@@ -1,20 +1,53 @@
 <?php
 require __DIR__ . '/db.php';
 require __DIR__ . '/functions.php';
+
 $q = trim($_GET['q'] ?? '');
+$viewerId = current_user_id();
+$viewerRole = $_SESSION['user']['role'] ?? 'user';
 $results = ['topics'=>[], 'users'=>[], 'messages'=>[]];
+
 if ($q !== '') {
   $like = '%' . $q . '%';
-  $st = $pdo->prepare('SELECT t.id, t.title FROM topics t WHERE t.deleted_at IS NULL AND (t.title LIKE ? OR t.content LIKE ?) COLLATE NOCASE ORDER BY t.created_at DESC LIMIT 50');
-  $st->execute([$like,$like]);
+
+  // Topics: include if not deleted, or if viewer is staff, or viewer is author
+  if (in_array($viewerRole, ['mod','admin'])) {
+    $st = $pdo->prepare('SELECT id, title FROM topics WHERE (title LIKE ? OR content LIKE ?) ORDER BY created_at DESC LIMIT 100');
+    $st->execute([$like,$like]);
+  } else if ($viewerId) {
+    $st = $pdo->prepare('SELECT id, title FROM topics WHERE (title LIKE ? OR content LIKE ?) AND (deleted_at IS NULL OR user_id = ?) ORDER BY created_at DESC LIMIT 100');
+    $st->execute([$like,$like,$viewerId]);
+  } else {
+    $st = $pdo->prepare('SELECT id, title FROM topics WHERE (title LIKE ? OR content LIKE ?) AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100');
+    $st->execute([$like,$like]);
+  }
   $results['topics'] = $st->fetchAll(PDO::FETCH_ASSOC);
+
+  // Users
   $su = $pdo->prepare('SELECT username FROM users WHERE username LIKE ? COLLATE NOCASE ORDER BY username LIMIT 50');
   $su->execute([$like]);
   $results['users'] = $su->fetchAll(PDO::FETCH_COLUMN);
-  $sm = $pdo->prepare('SELECT r.id, r.topic_id, substr(r.content,1,120) as snippet FROM replies r WHERE r.content LIKE ? COLLATE NOCASE ORDER BY r.created_at DESC LIMIT 50');
-  $sm->execute([$like]);
+
+  // Messages: show replies if not deleted, or if viewer is staff, or if viewer is reply author or topic author
+  if (in_array($viewerRole, ['mod','admin'])) {
+    $sm = $pdo->prepare('SELECT r.id, r.topic_id, substr(r.content,1,120) as snippet FROM replies r WHERE r.content LIKE ? ORDER BY r.created_at DESC LIMIT 200');
+    $sm->execute([$like]);
+  } else if ($viewerId) {
+    $sm = $pdo->prepare('
+      SELECT r.id, r.topic_id, substr(r.content,1,120) as snippet
+      FROM replies r
+      JOIN topics t ON t.id = r.topic_id
+      WHERE r.content LIKE ? AND (r.deleted_at IS NULL OR r.user_id = ? OR t.user_id = ?)
+      ORDER BY r.created_at DESC LIMIT 200
+    ');
+    $sm->execute([$like, $viewerId, $viewerId]);
+  } else {
+    $sm = $pdo->prepare('SELECT r.id, r.topic_id, substr(r.content,1,120) as snippet FROM replies r WHERE r.content LIKE ? AND r.deleted_at IS NULL ORDER BY r.created_at DESC LIMIT 200');
+    $sm->execute([$like]);
+  }
   $results['messages'] = $sm->fetchAll(PDO::FETCH_ASSOC);
 }
+
 include __DIR__ . '/partials/header.php';
 ?>
 <h1 class="text-2xl font-semibold mb-4">Recherche</h1>

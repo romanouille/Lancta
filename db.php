@@ -1,4 +1,5 @@
 <?php
+date_default_timezone_set("Europe/Paris");
 $config = require __DIR__ . '/config.php';
 
 if (!is_dir(__DIR__ . '/data')) mkdir(__DIR__ . '/data', 0777, true);
